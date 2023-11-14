@@ -1,0 +1,34 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<types:mule xmlns:types="http://www.mulesoft.org/schema/mule/types">
+  <types:catalog>
+    <types:type name="userCred" format="json">
+      <types:shape format="weave" example="examples/userCred.json"><![CDATA[%dw 2.0
+
+type userCred = {|
+  mobilenumber: String, 
+  password: String
+|} {"example": "{\\\"mobilenumber\\\":\\\"1234567890\\\",\\\"password\\\":\\\"Athulya@123\\\"}"}
+
+]]></types:shape>
+    </types:type>
+  </types:catalog>
+  <types:enrichment select="#4f93adb4-9c8e-4092-962d-ddaa6ee4e25c"/>
+  <types:enrichment select="#3956b16b-5a7a-4113-98db-2898b268fb8b"/>
+  <types:enrichment select="#0afebf81-f29c-4e57-8cdd-00d02a83cec5"/>
+  <types:enrichment select="#d8b97a0e-517c-43a7-b673-7fdbb4a4cba2"/>
+  <types:enrichment select="#c38a590b-b339-406a-95af-6c812c320e03"/>
+  <types:enrichment select="#766a2cc6-efe6-48c8-b792-12f5ec66dbf4"/>
+  <types:enrichment select="#46d469dc-0789-483a-bf39-acdd32cbb8ed"/>
+  <types:enrichment select="#b9426189-b5fe-41a1-b5e6-cebc464de242"/>
+  <types:enrichment select="#c0244614-99c1-4f47-ae9b-bd1102cdae96"/>
+  <types:enrichment select="#8f7a3d9b-a969-4c76-9581-eae7d06d0ace"/>
+  <types:enrichment select="#7e886a82-3d4c-4adb-a0a0-250726d324ac">
+    <types:processor-declaration>
+      <types:input-event>
+        <types:message>
+          <types:payload type="userCred"/>
+        </types:message>
+      </types:input-event>
+    </types:processor-declaration>
+  </types:enrichment>
+</types:mule>

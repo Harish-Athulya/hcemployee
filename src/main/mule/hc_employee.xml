@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:netsuite="http://www.mulesoft.org/schema/mule/netsuite"
+	xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:wsc="http://www.mulesoft.org/schema/mule/wsc" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/wsc http://www.mulesoft.org/schema/mule/wsc/current/mule-wsc.xsd
+http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd
+http://www.mulesoft.org/schema/mule/netsuite http://www.mulesoft.org/schema/mule/netsuite/current/mule-netsuite.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="116e6c24-6aa9-41f4-bcf8-f6b3241e8bd8" >
+		<http:listener-connection host="0.0.0.0" port="8090"/>
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="9656d798-a98a-4b55-87ed-f158e83cd4e6" >
+		<db:generic-connection url="jdbc:mysql://162.241.123.158:3306/theatgg6_shc_branch288?autoReconnect=true&amp;useSSL=false" driverClassName="com.mysql.cj.jdbc.Driver" user="theatgg6_apphc" password="YRpC]$&amp;%EalI" />
+	</db:config>
+	<flow name="serverInfo" doc:id="10a03669-5688-451d-bc2f-e9b1bd97e091" >
+		<http:listener doc:name="Listener" doc:id="ff4606a1-2d20-40d9-b63d-e3efff6b51cd" config-ref="HTTP_Listener_config" path="/hc/serverInfo"/>
+		<set-payload value="#[server]" doc:name="Set Payload" doc:id="06b6ecbc-77de-4fc8-90cd-90376c67f836" />
+		<ee:transform doc:name="Transform Message" doc:id="1ab0f8ea-2669-48eb-af17-97712ad7a1af" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="futureAppointments" doc:id="0d03a2b7-7357-415d-aee4-318bb67da346" >
+		<http:listener doc:name="Listener" doc:id="de1db7ec-03e9-4e3c-9dec-3c2966ccfb00" config-ref="HTTP_Listener_config" path="/hc/staff/worklist/{staff_id}/future"/>
+		<set-variable value="#[attributes.uriParams.staff_id]" doc:name="Staff ID" doc:id="640b2766-674f-457f-9de8-19506f86b724" variableName="staff_id"/>
+		<db:select doc:id="ce5b732c-741e-413e-a544-4285e0df9f90" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT cs.id, cs.caregiver_id, (SELECT caregivers.first_name FROM caregivers WHERE id = :staff_id) "Staff_Name", p.first_name "Client_Name", p.latitude, p.longitude, cs.schedule_date, cs.service_required, (SELECT master_services.display_name FROM master_services WHERE cs.service_required = master_services.id) "Service", cs.assigned_tasks, cs.amount, cs.case_status, cs.case_ack_at, cs.case_clockin_at, cs.case_clockout_at FROM case_schedules cs JOIN patients p ON cs.patient_id = p.id WHERE caregiver_id = :staff_id and STR_TO_DATE(cs.schedule_date, "%Y-%m-%d") > CURRENT_DATE ORDER BY cs.schedule_date ASC]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	staff_id : vars.staff_id
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="8cd11685-b6ce-42af-8227-d217c56c9013" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+fun getLocation(lat:String, long:String) = lat ++ "," ++ long
+output application/json
+---
+payload map (value, index) -> {
+	Sno: index+1,
+	caseID: value.id,
+	Staff_name : value.Staff_Name,
+	Client_name: value.Client_Name,
+	TaskDate : value.schedule_date as Date {format: "dd/MM/yyyy"},		
+	Location: getLocation(value.latitude default "",value.longitude default ""),
+	Service: value.Service,
+	Amount: value.amount,
+	Tasks : read(value.assigned_tasks, "application/json").task,
+	Case_Status: value.case_status,
+	Case_ack_at: value.case_ack_at default "null",
+	Case_clockin_at: value.case_clockin_at default "null",
+	Case_clockout_at: value.case_clockout_at default "null"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="currentAppointments" doc:id="2a1a2509-85e1-4043-8aa3-578b2edd4996" >
+		<http:listener doc:name="Listener" doc:id="bc1c2aaa-bf09-42a2-881c-1d388dc89832" config-ref="HTTP_Listener_config" path="/hc/staff/worklist/{staff_id}/current"/>
+		<set-variable value="#[attributes.uriParams.staff_id]" doc:name="Set Variable" doc:id="cb36f963-f441-4171-a245-685f383d2c2e" variableName="staff_id"/>
+		<db:select doc:name="Select" doc:id="50f64b58-cdf2-4270-8e50-94edb49efd00" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT cs.id, cs.caregiver_id, (SELECT caregivers.first_name FROM caregivers WHERE id = :staff_id) "Staff_Name", p.first_name "Client_Name", p.latitude, p.longitude, cs.schedule_date, cs.service_required, (SELECT master_services.display_name FROM master_services WHERE cs.service_required = master_services.id) "Service", cs.assigned_tasks, cs.amount, cs.case_status, cs.case_ack_at, cs.case_clockin_at, cs.case_clockout_at FROM case_schedules cs JOIN patients p ON cs.patient_id = p.id WHERE caregiver_id = :staff_id and STR_TO_DATE(cs.schedule_date, "%Y-%m-%d") = CURRENT_DATE ORDER BY cs.schedule_date DESC;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	staff_id : vars.staff_id
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="8bce63c9-e761-4851-9341-405e960bbf64" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+fun getLocation(lat:String, long:String) = lat ++ "," ++ long
+output application/json
+---
+payload map (value, index) -> {
+	Sno: index+1,
+	caseID: value.id,
+	Staff_name : value.Staff_Name,
+	Client_name: value.Client_Name,
+	TaskDate : value.schedule_date as Date {format: "dd/MM/yyyy"},		
+	Location: getLocation(value.latitude default "",value.longitude default ""),
+	Service: value.Service,
+	Amount: value.amount,
+	Tasks : read(value.assigned_tasks, "application/json").task,
+	Case_Status: value.case_status,
+	Case_ack_at: value.case_ack_at default "null",
+	Case_clockin_at: value.case_clockin_at default "null",
+	Case_clockout_at: value.case_clockout_at default "null"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	
+</flow>
+		<flow name="pastAppointments" doc:id="de179810-5193-4b79-9ff7-bbed77f5ac9e" >
+		<http:listener doc:name="Listener" doc:id="cd517a31-2311-461f-abae-0af9ed175919" config-ref="HTTP_Listener_config" path="/hc/staff/worklist/{staff_id}/past"/>
+		<set-variable value="#[attributes.uriParams.staff_id]" doc:name="Set Variable" doc:id="7171eaf8-3058-40ae-a2e2-e82cc91b44d1" variableName="staff_id"/>
+		<db:select doc:id="88f736ec-64fc-47a6-a499-3e1117e45746" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT cs.id, cs.caregiver_id, (SELECT caregivers.first_name FROM caregivers WHERE id = :staff_id) "Staff_Name", p.first_name "Client_Name", p.latitude, p.longitude, cs.schedule_date, cs.service_required, (SELECT master_services.display_name FROM master_services WHERE cs.service_required = master_services.id) "Service", cs.assigned_tasks, cs.amount, cs.case_status, cs.case_ack_at, cs.case_clockin_at, cs.case_clockout_at FROM case_schedules cs JOIN patients p ON cs.patient_id = p.id WHERE caregiver_id = :staff_id and STR_TO_DATE(cs.schedule_date, "%Y-%m-%d") < CURRENT_DATE and STR_TO_DATE(cs.schedule_date, "%Y-%m-%d") > CURRENT_DATE - 10 ORDER BY cs.schedule_date DESC;]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	staff_id : vars.staff_id
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="46d469dc-0789-483a-bf39-acdd32cbb8ed" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+fun getLocation(lat:String, long:String) = lat ++ "," ++ long
+output application/json
+---
+payload map (value, index) -> {
+	Sno: index+1,
+	caseID: value.id,
+	Staff_name : value.Staff_Name,
+	Client_name: value.Client_Name,
+	TaskDate : value.schedule_date as Date {format: "dd/MM/yyyy"},		
+	Location: getLocation(value.latitude default "",value.longitude default ""),
+	Service: value.Service,
+	Amount: value.amount,
+	Tasks : read(value.assigned_tasks, "application/json").task,
+	Case_Status: value.case_status,
+	Case_ack_at: value.case_ack_at default "null",
+	Case_clockin_at: value.case_clockin_at default "null",
+	Case_clockout_at: value.case_clockout_at default "null"
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+	
+</flow>
+	<flow name="hc_employeeFlow" doc:id="ebc43ee6-89d4-45b7-a974-0c93171bdf98" >
+		<http:listener doc:name="Listener" doc:id="22bce57b-43e6-4827-b6ce-f4a1cef0700d" config-ref="HTTP_Listener_config" path="/hc/staff/worklist/{caseID}/{status}"/>
+		<ee:transform doc:name="Transform Message" doc:id="3956b16b-5a7a-4113-98db-2898b268fb8b" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="geocode" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.headers.geocode]]></ee:set-variable>
+				<ee:set-variable variableName="status" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.uriParams.status]]></ee:set-variable>
+				<ee:set-variable variableName="revgc" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.headers.revgc]]></ee:set-variable>
+				<ee:set-variable variableName="caseID" ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.uriParams.caseID]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="4be0b1b8-4798-4537-bcf9-74a29af0213e" message="#[vars.status]"/>
+		<ee:transform doc:name="Transform Message" doc:id="4f93adb4-9c8e-4092-962d-ddaa6ee4e25c" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="fieldVal" ><![CDATA[%dw 2.0
+output application/java
+---
+if(vars.status == "acp") "Accepted" else if (vars.status == "rej") "Rejected" else if (vars.status == "cin") "Clocked_In" else if (vars.status == "cout") "Clocked_Out" else false]]></ee:set-variable>
+				<ee:set-variable variableName="updateField" ><![CDATA[%dw 2.0
+output application/java
+---
+if(vars.status == "acp") "case_ack_at" else if (vars.status == "rej") 'case_ack_at' else if (vars.status == "cin") 'case_clockin_at' else if (vars.status == "cout") 'case_clockout_at' else false]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<validation:is-false doc:name="Is false" doc:id="4569a35e-ed7c-4c75-8479-5b74b8a15ce5" message='"Invalid status provided"' expression="#[vars.fieldVal == false]"/>
+		<choice doc:name="Choice" doc:id="b5af4b95-3dd9-4c58-9811-571da0f788a4">
+			<when expression="#[vars.fieldVal == 'Clocked_In' or vars.fieldVal == 'Clocked_Out']">
+				<logger level="INFO" doc:name="Logger" doc:id="fcec60d7-f1f8-4b8e-a91d-aaf7f5d0f5c0" message='"Geocode: #[vars.geocode] and RevGC: #[vars.revgc]"' />
+				<validation:is-false doc:name="Is false" doc:id="f908204b-98a4-4c18-8762-31dc151f3766" message='#["Geocode and Reverse Geocode value must be provided"]' expression='#[isEmpty(vars.revgc) or isEmpty(vars.geocode)]'/>
+				<ee:transform doc:name="Transform Message" doc:id="d8b97a0e-517c-43a7-b673-7fdbb4a4cba2">
+					<ee:message>
+					</ee:message>
+					<ee:variables>
+						<ee:set-variable variableName="locField"><![CDATA[%dw 2.0
+output application/java
+---
+if(vars.fieldVal == 'Clocked_In') 'clockin_loc' else 'clockout_loc']]></ee:set-variable>
+						<ee:set-variable variableName="location" ><![CDATA[%dw 2.0
+output application/json
+---
+{geocode: vars.geocode,revgeocode: vars.revgc}]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="Transform Message" doc:id="c38a590b-b339-406a-95af-6c812c320e03">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/java
+var mainStr = "UPDATE case_schedules SET case_status = :cstatus, :field = CURRENT_TIMESTAMP, :locfield = :location WHERE id = :caseID"
+var rep1 = vars.updateField
+var rep2 = vars.locField
+---
+(mainStr replace ':field' with rep1) replace ':locfield' with vars.locField]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+					</ee:variables>
+				</ee:transform>
+				<db:update doc:name="Update" doc:id="e2969968-d08d-44dc-b9e6-fa72d362cd09" config-ref="Database_Config">
+					<db:sql ><![CDATA[#[payload]]]></db:sql>
+					<db:input-parameters ><![CDATA[#[{
+	caseID  : attributes.uriParams.caseID,
+	cstatus : vars.fieldVal,
+	location: write(vars.location, "application/json")
+}]]]></db:input-parameters>
+				</db:update>
+			</when>
+			<otherwise>
+				<ee:transform doc:name="Transform Message" doc:id="0afebf81-f29c-4e57-8cdd-00d02a83cec5">
+					<ee:message>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="updateQ" ><![CDATA[%dw 2.0
+output text/plain
+---
+"UPDATE case_schedules SET case_status = :cstatus, :field = CURRENT_TIMESTAMP WHERE id = :caseID"]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="Transform Message" doc:id="75e1a4ac-7618-46ab-982e-7dab0a9202cb" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.updateQ replace ":field" with vars.updateField]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<db:update doc:name="Update" doc:id="8a6b4b64-aafa-47c5-bf7f-d472bf0f27f1" config-ref="Database_Config">
+			<db:sql><![CDATA[#[payload]]]></db:sql>
+			<db:input-parameters><![CDATA[#[{
+	caseID : vars.caseID,
+	cstatus : vars.fieldVal
+}]]]></db:input-parameters>
+		</db:update>
+			</otherwise>
+		</choice>
+		<ee:transform doc:name="Transform Message" doc:id="e4800dea-c031-46b4-9f58-aaa299f00a21" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message: "Status successfully updated"
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="entireScheduleData" doc:id="29f8abab-d3af-46af-b340-ef49b127aba3" >
+		<http:listener doc:name="Listener" doc:id="17b2a9c1-7636-4c56-adf6-e423be893483" config-ref="HTTP_Listener_config" path="/hc/staff/worklist/{staff_id}/entire"/>
+		<set-variable value="#[attributes.uriParams.staff_id]" doc:name="Set Variable" doc:id="44a45775-b43d-4a7d-87e0-555bfedea59d" variableName="staff_id"/>
+		<db:select doc:name="Select" doc:id="6f56f6b5-ae34-4a28-82e6-e1ef280aedd8" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT * FROM case_schedules WHERE caregiver_id = :staff_id and schedule_date >= CURRENT_DATE ORDER BY schedule_date DESC]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	staff_id: vars.staff_id
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="4aaad20f-1a4d-439f-ae2d-87a37de62bc4" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="loginValidate" doc:id="69c526cf-4eb8-4eb2-822a-f0ad5443b6d3" >
+		<http:listener doc:name="Listener" doc:id="514825b2-ce99-4462-824f-1ad5237c5bf2" config-ref="HTTP_Listener_config" path="/hc/staff/login" allowedMethods="POST"/>
+		<ee:transform doc:name="Transform Message" doc:id="8f7a3d9b-a969-4c76-9581-eae7d06d0ace">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="username"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.headers.mobilenumber]]></ee:set-variable>
+				<ee:set-variable variableName="password"><![CDATA[%dw 2.0
+output application/java
+---
+attributes.headers.password]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<ee:transform doc:name="Transform Message" doc:id="7e886a82-3d4c-4adb-a0a0-250726d324ac">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	mobile: vars.username,
+	pwd: vars.password
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Logger" doc:id="a6c4124f-6b1c-420e-b662-46cd4b73446c" message="#[payload]" />
+		<db:select doc:name="Select" doc:id="72a32fcd-c09d-4e04-9660-40fb6ee1ed43" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT id, first_name FROM caregivers WHERE mobile_number = :mobilenum AND app_password = :pwd]]></db:sql>
+			<db:input-parameters ><![CDATA[#[{
+	mobilenum:	payload.mobile,
+	pwd:	payload.pwd
+}]]]></db:input-parameters>
+		</db:select>
+		<ee:transform doc:name="Transform Message" doc:id="c0244614-99c1-4f47-ae9b-bd1102cdae96" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	caregiver_id: if(payload.id[0] == null) "Invalid" else payload.id[0],
+	message: if(payload.first_name[0] == null) "Enter correct credentials" else payload.first_name[0]		
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+	</flow>
+	
+
+</mule>
